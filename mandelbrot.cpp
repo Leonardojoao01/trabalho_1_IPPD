@@ -6,7 +6,11 @@
 #include <stdlib.h>
 using namespace std;
 
-#define threads 8
+#define threads 2
+double minR= -1.5;
+double maxR= 0.7;
+double minI= -1.0;
+double maxI= 1.0;
 
 int findMandelbrot(double cr, double ci, int max_iterations);
 
@@ -14,9 +18,13 @@ double mapToReal(int x, int imageWidth, double minR, double maxR);
 
 double mapToImaginary(int y, int imageHeight, double minI, double maxI);
 
-void teste(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec);
+void teste(int imageHeight,int imageWidth, int maxN, int** vec);
 
-void teste_1(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec);
+void teste_1(int imageHeight,int imageWidth, int maxN, int** vec);
+
+void blocos(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim, int** vec);
+
+void parallel_mandelbrot_blocos_task_omp(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim, int** vec);
 
 void geraImagem(int larg, int alt, int** vec);
 
@@ -29,7 +37,7 @@ int main(int argc, char ** argv){
 	// Get the required input values from file...
 	ifstream fin("input.txt");
 	int imageWidth, imageHeight, maxN;
-	double minR, maxR, minI, maxI;
+	//double minR, maxR, minI, maxI;
 
 	if (!fin){
 		cout << "Could not open file!" << endl;
@@ -37,7 +45,7 @@ int main(int argc, char ** argv){
 	}
 
 	fin >> imageWidth >> imageHeight >> maxN;
-	fin >> minR >> maxR >> minI >> maxI;
+	//fin >> minR >> maxR >> minI >> maxI;
 	fin.close(); // Not necessary, good practice :D
 
 	int **vec;
@@ -54,11 +62,18 @@ int main(int argc, char ** argv){
           exit(1);
       }
   }
-	//--------------------------------------------------------------------------
 
-	//teste(imageHeight, imageWidth, maxN, minR, maxR, minI, maxI, vec);
+	//============================================================================
+	//----------------------------------------------------------------------------
 
-	teste_1(imageHeight, imageWidth, maxN, minR, maxR, minI, maxI, vec);
+	teste(imageHeight, imageWidth, maxN, vec);
+
+	//teste_1(imageHeight, imageWidth, maxN, vec);
+
+	//blocos(maxN, imageWidth, imageHeight, 0, imageWidth, 0, imageHeight, vec);
+
+	//----------------------------------------------------------------------------
+	//============================================================================
 
 	geraImagem(imageWidth, imageHeight, vec);
 	 //Desaloca a espaço de memória, utilizado para salva os dados calculados em relação a profundidade
@@ -98,24 +113,23 @@ int findMandelbrot(double cr, double ci, int max_iterations){
 }
 				//----------------------------------------------------------------------
 // Paraleliza a LINHA
-void teste(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec){
+//void teste(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec){
 
-	int x,y;
+void teste(int imageHeight,int imageWidth, int maxN, int** vec){
+	int x,y,n;
 	double cr=0, ci=0;
 
-	#pragma omp parallel for num_threads(threads) shared(vec, y) private(x,cr,ci)
+	#pragma omp parallel for num_threads(threads) shared(vec, y) private(x,cr,ci,n) firstprivate(maxR, minR, maxI, minI)
 	for (y = 0; y < imageHeight; y++){
 		for (x = 0; x < imageWidth; x++){
 
 			// Cálcula o valor COMPLEXO REAL e IMAGINARIO
 			// // utilizando a linha e coluna para esses cálculos
-			// double cr = mapToReal(x, imageWidth, minR, maxR);
-			// double ci = mapToImaginary(y, imageHeight, minI, maxI);
 
 			cr = mapToReal(x, imageWidth, minR, maxR);
 			ci = mapToImaginary(y, imageHeight, minI, maxI);
 
-			int n = findMandelbrot(cr, ci, maxN);	//Gera a profundidade
+			n = findMandelbrot(cr, ci, maxN);	//Gera a profundidade
 
 			//Salva o valor da profundidade em um vetor para posteriormente efetual o
 			// cálculo da cor e salvar em um arquivo, gerando a imagem ".ppm"
@@ -125,30 +139,86 @@ void teste(int imageHeight,int imageWidth, int maxN, double minR, double maxR, d
 }
 				//----------------------------------------------------------------------
 // Paraleliza a COLUNA
-void teste_1(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec){
+//void teste_1(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec){
+void teste_1(int imageHeight,int imageWidth, int maxN, int** vec){
 
-	int x,y;
+	int x,y,n;
 	double cr=0, ci=0;
 
-	for (y = 0; y < imageHeight; y++){
-		#pragma omp parallel for num_threads(threads) shared(vec,y) private(x)
-		for (x = 0; x < imageWidth; x++){
+	#pragma omp parallel for num_threads(threads) shared(vec,x) private(y,cr,ci,n) firstprivate(maxR, minR, maxI, minI)
+	for (x = 0; x < imageHeight; x++){
+
+		for (y = 0; y < imageWidth; y++){
 
 			// Cálcula o valor COMPLEXO REAL e IMAGINARIO
 			// // utilizando a linha e coluna para esses cálculos
-			// double cr = mapToReal(x, imageWidth, minR, maxR);
-			// double ci = mapToImaginary(y, imageHeight, minI, maxI);
 
 			cr = mapToReal(x, imageWidth, minR, maxR);
 			ci = mapToImaginary(y, imageHeight, minI, maxI);
 
-			int n = findMandelbrot(cr, ci, maxN);	//Gera a profundidade
+			n = findMandelbrot(cr, ci, maxN);	//Gera a profundidade
 
 			//Salva o valor da profundidade em um vetor para posteriormente efetual o
 			// cálculo da cor e salvar em um arquivo, gerando a imagem ".ppm"
 			vec[y][x]=n;
 		}
 	}
+
+}
+
+void blocos(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim, int** vec){
+	#pragma omp parallel num_threads(threads)
+        {
+            #pragma omp single
+            {
+                //Time[0] = clock();
+                parallel_mandelbrot_blocos_task_omp(itmax,largImg,altImg,0,largImg,0,altImg, vec);
+                //Time[1] = clock();
+            }
+        }
+}
+
+void parallel_mandelbrot_blocos_task_omp(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim,  int **vec){
+    int diffLarg, diffAlt;
+		//double cr=0, ci=0;
+
+		diffLarg = largFim - largIni;
+    diffAlt = altFim - altIni;
+
+		// maxR
+
+		if(diffAlt <= 64 || diffLarg <= 64){
+        for(int x = largIni; x < largFim; x++) {
+            for(int y = altIni; y < altFim; y++) {
+
+							double cr = mapToReal(y, largImg, minR, maxR);
+							double ci = mapToImaginary(x, altImg, minI, maxI);
+
+							int n = findMandelbrot(cr, ci, itmax);
+
+							vec[x][y] = n;
+            }
+        }
+    }
+    else{
+            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            {
+                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, largIni, ceil((largFim+largIni)/2), altIni, ceil((altFim+altIni)/2), vec);
+            }
+            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            {
+                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, ceil((largFim+largIni)/2), largFim, altIni, ceil((altFim+altIni)/2), vec);
+            }
+            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            {
+                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, largIni, ceil((largFim+largIni)/2), ceil((altFim+altIni)/2), altFim, vec);
+            }
+            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            {
+                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, ceil((largFim+largIni)/2), largFim, ceil((altFim+altIni)/2), altFim, vec);
+            }
+            #pragma omp taskwait
+    }
 
 }
 
@@ -165,10 +235,10 @@ void geraImagem(int larg, int alt, int** vec){
 	        int prof = vec[i][j];  //descobre a profundidade do ponto
 	        int red,green,blue;
             red = (prof % 16) *50;
-						green = prof % 256;
-						blue = prof % 256;
-            //green = (prof % 256) * 16;
-            //blue = (prof % 32) * 8;
+						//green = prof % 256;
+						//blue = prof % 256;
+            green = (prof % 256) * 16;
+            blue = (prof % 32) * 8;
             fout << red << " " << green << " " << blue << " ";
 	    }
 	    fout << endl;
