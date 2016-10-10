@@ -7,26 +7,26 @@
 using namespace std;
 
 #define threads 2
-double minR= -1.5;
-double maxR= 0.7;
-double minI= -1.0;
-double maxI= 1.0;
+double min_R= -1.5;
+double max_R= 0.7;
+double min_I= -1.0;
+double max_I= 1.0;
 
-int findMandelbrot(double cr, double ci, int max_iterations);
+int calculo_profundidade(double cr, double ci, int max_iterations);
 
-double mapToReal(int x, int imageWidth, double minR, double maxR);
+double valor_real(int x, int largura_imagem, double min_R, double max_R);
 
-double mapToImaginary(int y, int imageHeight, double minI, double maxI);
+double valor_imaginario(int y, int altura_imagem, double min_I, double max_I);
 
-void teste(int imageHeight,int imageWidth, int maxN, int** vec);
+void paralelismo_linha(int altura_imagem,int largura_imagem, int iter_max, int** matriz);
 
-void teste_1(int imageHeight,int imageWidth, int maxN, int** vec);
+void paralelismo_coluna(int altura_imagem,int largura_imagem, int iter_max, int** matriz);
 
-void blocos(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim, int** vec);
+void paralelismo_bloco(int iter_max, int largImg, int altImg, int** matriz);
 
-void parallel_mandelbrot_blocos_task_omp(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim, int** vec);
+void paralelismo_blocos_task_omp_recursivo(int iter_max, int largImg, int altImg, int larg_ini, int larg_fim, int alt_ini, int alt_fim, int** matriz);
 
-void geraImagem(int larg, int alt, int** vec);
+void calcula_imagem(int larg, int alt, int** matriz);
 
 
 int main(int argc, char ** argv){
@@ -34,31 +34,29 @@ int main(int argc, char ** argv){
 	clock_t Time[2];
   Time[0] = clock();
 
-	// Get the required input values from file...
-	ifstream fin("input.txt");
-	int imageWidth, imageHeight, maxN;
-	//double minR, maxR, minI, maxI;
+	// Valores de entrada no arquivo
+	ifstream fin("entrada.txt");
+	int largura_imagem, altura_imagem, iter_max;
 
 	if (!fin){
-		cout << "Could not open file!" << endl;
 		return 1;
 	}
 
-	fin >> imageWidth >> imageHeight >> maxN;
-	//fin >> minR >> maxR >> minI >> maxI;
-	fin.close(); // Not necessary, good practice :D
+	fin >> largura_imagem >> altura_imagem >> iter_max;
+	fin.close(); // Fecha o arquivo, para não ficar ocupando memória
 
-	int **vec;
-
+	int **matriz;		// utilizado para gerar uma matriz e passar como argumento aos outros modulos
+	int i;
 	//------------ALOCA A MATRIZ P/ SALVAR O CÁLCULO DA PROFUNDIDADE--------------
 	// Primeiro momento é alocado as linhas e após as colunas
-	vec = (int **)malloc((imageWidth) * sizeof(int **));
-    if(vec == NULL){
+	matriz = (int **)malloc((largura_imagem) * sizeof(int **));
+    if(matriz == NULL){
         exit(1);
     }
-  for(int i = 0; i<imageWidth; i++){
-      vec[i] = (int *)malloc(imageHeight * sizeof(int));
-      if(vec[i] == NULL) {
+	// Quando é alocado as colunas
+  for(i = 0; i<largura_imagem; i++){
+      matriz[i] = (int *)malloc(altura_imagem * sizeof(int));
+      if(matriz[i] == NULL) {
           exit(1);
       }
   }
@@ -66,18 +64,18 @@ int main(int argc, char ** argv){
 	//============================================================================
 	//----------------------------------------------------------------------------
 
-	teste(imageHeight, imageWidth, maxN, vec);
+	//paralelismo_linha(altura_imagem, largura_imagem, iter_max, matriz);
 
-	//teste_1(imageHeight, imageWidth, maxN, vec);
+	//paralelismo_coluna(altura_imagem, largura_imagem, iter_max, matriz);
 
-	//blocos(maxN, imageWidth, imageHeight, 0, imageWidth, 0, imageHeight, vec);
+	paralelismo_bloco(iter_max, largura_imagem, altura_imagem, matriz);
 
 	//----------------------------------------------------------------------------
 	//============================================================================
 
-	geraImagem(imageWidth, imageHeight, vec);
+	calcula_imagem(largura_imagem, altura_imagem, matriz);
 	 //Desaloca a espaço de memória, utilizado para salva os dados calculados em relação a profundidade
-	free(vec);
+	free(matriz);
 
 	Time[1] = clock();
   double tempo_decorrido = (Time[1] - Time[0]) * 1000.0 / CLOCKS_PER_SEC;
@@ -89,17 +87,17 @@ int main(int argc, char ** argv){
 //==============================================================================
 //----------------------------------Funções-------------------------------------
 
-double mapToReal(int x, int imageWidth, double minR, double maxR){
-	double range = maxR - minR;
-	return x * (range / imageWidth) + minR;
+double valor_real(int x, int largura_imagem, double min_R, double max_R){
+	double range = max_R - min_R;
+	return x * (range / largura_imagem) + min_R;
 }
 				//----------------------------------------------------------------------
-double mapToImaginary(int y, int imageHeight, double minI, double maxI){
-	double range = maxI - minI;
-	return y * (range / imageHeight) + minI;
+double valor_imaginario(int y, int altura_imagem, double min_I, double max_I){
+	double range = max_I - min_I;
+	return y * (range / altura_imagem) + min_I;
 }
 				//----------------------------------------------------------------------
-int findMandelbrot(double cr, double ci, int max_iterations){
+int calculo_profundidade(double cr, double ci, int max_iterations){
 	int i = 0;
 	double zr = 0.0, zi = 0.0;
 	//Formula retirada da literatura para gerar a profundidade
@@ -113,109 +111,105 @@ int findMandelbrot(double cr, double ci, int max_iterations){
 }
 				//----------------------------------------------------------------------
 // Paraleliza a LINHA
-//void teste(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec){
+//void paralelismo_linha(int altura_imagem,int largura_imagem, int iter_max, double min_R, double max_R, double min_I, double max_I, int** matriz){
 
-void teste(int imageHeight,int imageWidth, int maxN, int** vec){
+void paralelismo_linha(int altura_imagem,int largura_imagem, int iter_max, int** matriz){
 	int x,y,n;
 	double cr=0, ci=0;
 
-	#pragma omp parallel for num_threads(threads) shared(vec, y) private(x,cr,ci,n) firstprivate(maxR, minR, maxI, minI)
-	for (y = 0; y < imageHeight; y++){
-		for (x = 0; x < imageWidth; x++){
+	#pragma omp parallel for num_threads(threads) shared(matriz, y) private(x,cr,ci,n) firstprivate(max_R, min_R, max_I, min_I)
+	for (y = 0; y < altura_imagem; y++){
+		for (x = 0; x < largura_imagem; x++){
 
 			// Cálcula o valor COMPLEXO REAL e IMAGINARIO
 			// // utilizando a linha e coluna para esses cálculos
 
-			cr = mapToReal(x, imageWidth, minR, maxR);
-			ci = mapToImaginary(y, imageHeight, minI, maxI);
+			cr = valor_real(x, largura_imagem, min_R, max_R);
+			ci = valor_imaginario(y, altura_imagem, min_I, max_I);
 
-			n = findMandelbrot(cr, ci, maxN);	//Gera a profundidade
+			n = calculo_profundidade(cr, ci, iter_max);	//Gera a profundidade
 
 			//Salva o valor da profundidade em um vetor para posteriormente efetual o
 			// cálculo da cor e salvar em um arquivo, gerando a imagem ".ppm"
-			vec[y][x]=n;
+			matriz[y][x]=n;
 		}
 	}
 }
 				//----------------------------------------------------------------------
 // Paraleliza a COLUNA
-//void teste_1(int imageHeight,int imageWidth, int maxN, double minR, double maxR, double minI, double maxI, int** vec){
-void teste_1(int imageHeight,int imageWidth, int maxN, int** vec){
+//void paralelismo_coluna(int altura_imagem,int largura_imagem, int iter_max, double min_R, double max_R, double min_I, double max_I, int** matriz){
+void paralelismo_coluna(int altura_imagem,int largura_imagem, int iter_max, int** matriz){
 
 	int x,y,n;
 	double cr=0, ci=0;
 
-	#pragma omp parallel for num_threads(threads) shared(vec,x) private(y,cr,ci,n) firstprivate(maxR, minR, maxI, minI)
-	for (x = 0; x < imageHeight; x++){
+	#pragma omp parallel for num_threads(threads) shared(matriz,x) private(y,cr,ci,n) firstprivate(max_R, min_R, max_I, min_I)
+	for (x = 0; x < altura_imagem; x++){
 
-		for (y = 0; y < imageWidth; y++){
+		for (y = 0; y < largura_imagem; y++){
 
 			// Cálcula o valor COMPLEXO REAL e IMAGINARIO
 			// // utilizando a linha e coluna para esses cálculos
 
-			cr = mapToReal(x, imageWidth, minR, maxR);
-			ci = mapToImaginary(y, imageHeight, minI, maxI);
+			cr = valor_real(x, largura_imagem, min_R, max_R);
+			ci = valor_imaginario(y, altura_imagem, min_I, max_I);
 
-			n = findMandelbrot(cr, ci, maxN);	//Gera a profundidade
+			n = calculo_profundidade(cr, ci, iter_max);	//Gera a profundidade
 
 			//Salva o valor da profundidade em um vetor para posteriormente efetual o
 			// cálculo da cor e salvar em um arquivo, gerando a imagem ".ppm"
-			vec[y][x]=n;
+			matriz[y][x]=n;
 		}
 	}
 
 }
 
-void blocos(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim, int** vec){
+void paralelismo_bloco(int iter_max, int largImg, int altImg, int** matriz){
+
 	#pragma omp parallel num_threads(threads)
         {
             #pragma omp single
             {
-                //Time[0] = clock();
-                parallel_mandelbrot_blocos_task_omp(itmax,largImg,altImg,0,largImg,0,altImg, vec);
-                //Time[1] = clock();
+                paralelismo_blocos_task_omp_recursivo(iter_max,largImg,altImg,0,largImg,0,altImg, matriz);
             }
         }
 }
 
-void parallel_mandelbrot_blocos_task_omp(int itmax, int largImg, int altImg, int largIni, int largFim, int altIni, int altFim,  int **vec){
-    int diffLarg, diffAlt;
-		//double cr=0, ci=0;
+void paralelismo_blocos_task_omp_recursivo(int iter_max, int largImg, int altImg, int larg_ini, int larg_fim, int alt_ini, int alt_fim,  int **matriz){
+    int dif_larg, dif_alt;
 
-		diffLarg = largFim - largIni;
-    diffAlt = altFim - altIni;
+		dif_larg = larg_fim - larg_ini;
+    dif_alt = alt_fim - alt_ini;
 
-		// maxR
+		if(dif_alt <= 64 || dif_larg <= 64){
+        for(int x = larg_ini; x < larg_fim; x++) {
+            for(int y = alt_ini; y < alt_fim; y++) {
 
-		if(diffAlt <= 64 || diffLarg <= 64){
-        for(int x = largIni; x < largFim; x++) {
-            for(int y = altIni; y < altFim; y++) {
+							double cr = valor_real(y, largImg, min_R, max_R);
+							double ci = valor_imaginario(x, altImg, min_I, max_I);
 
-							double cr = mapToReal(y, largImg, minR, maxR);
-							double ci = mapToImaginary(x, altImg, minI, maxI);
+							int n = calculo_profundidade(cr, ci, iter_max);
 
-							int n = findMandelbrot(cr, ci, itmax);
-
-							vec[x][y] = n;
+							matriz[x][y] = n;
             }
         }
     }
     else{
-            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            #pragma omp task untied shared(matriz) firstprivate(iter_max,largImg, altImg,larg_ini,larg_fim,alt_ini,alt_fim)
             {
-                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, largIni, ceil((largFim+largIni)/2), altIni, ceil((altFim+altIni)/2), vec);
+                paralelismo_blocos_task_omp_recursivo(iter_max, largImg, altImg, larg_ini, ceil((larg_fim+larg_ini)/2), alt_ini, ceil((alt_fim+alt_ini)/2), matriz);
             }
-            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            #pragma omp task untied shared(matriz) firstprivate(iter_max,largImg, altImg,larg_ini,larg_fim,alt_ini,alt_fim)
             {
-                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, ceil((largFim+largIni)/2), largFim, altIni, ceil((altFim+altIni)/2), vec);
+                paralelismo_blocos_task_omp_recursivo(iter_max, largImg, altImg, ceil((larg_fim+larg_ini)/2), larg_fim, alt_ini, ceil((alt_fim+alt_ini)/2), matriz);
             }
-            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            #pragma omp task untied shared(matriz) firstprivate(iter_max,largImg, altImg,larg_ini,larg_fim,alt_ini,alt_fim)
             {
-                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, largIni, ceil((largFim+largIni)/2), ceil((altFim+altIni)/2), altFim, vec);
+                paralelismo_blocos_task_omp_recursivo(iter_max, largImg, altImg, larg_ini, ceil((larg_fim+larg_ini)/2), ceil((alt_fim+alt_ini)/2), alt_fim, matriz);
             }
-            #pragma omp task untied shared(vec) firstprivate(itmax,largImg, altImg,largIni,largFim,altIni,altFim)
+            #pragma omp task untied shared(matriz) firstprivate(iter_max,largImg, altImg,larg_ini,larg_fim,alt_ini,alt_fim)
             {
-                parallel_mandelbrot_blocos_task_omp(itmax, largImg, altImg, ceil((largFim+largIni)/2), largFim, ceil((altFim+altIni)/2), altFim, vec);
+                paralelismo_blocos_task_omp_recursivo(iter_max, largImg, altImg, ceil((larg_fim+larg_ini)/2), larg_fim, ceil((alt_fim+alt_ini)/2), alt_fim, matriz);
             }
             #pragma omp taskwait
     }
@@ -223,25 +217,27 @@ void parallel_mandelbrot_blocos_task_omp(int itmax, int largImg, int altImg, int
 }
 
 
-void geraImagem(int larg, int alt, int** vec){
-  //ofstream fout(nome);
-	ofstream fout("output_image.ppm");
-	fout << "P3" << endl; // "Magic Number" - PPM file
-	fout << larg << " " << alt << endl; // Dimensions
-	fout << "255" << endl;
+void calcula_imagem(int larg, int alt, int** matriz){
 
-	for(int i = 0; i < larg; i++){
-	    for(int j = 0; j < alt; j++){
-	        int prof = vec[i][j];  //descobre a profundidade do ponto
-	        int red,green,blue;
-            red = (prof % 16) *50;
+	int i, j, red, green, blue, val_profundidade;
+
+	ofstream criando_imagem("output_image.ppm");
+	criando_imagem << "P3" << endl; 							// utilizado para gerar .ppm
+	criando_imagem << larg << " " << alt << endl;
+	criando_imagem << "255" << endl;							// Dimensão da imagem
+
+	for(i = 0; i < larg; i++){
+	    for(j = 0; j < alt; j++){
+						//Valor da profundidade utilizado para calcula a cor no ponto
+	        	val_profundidade = matriz[i][j];
+            red = (val_profundidade % 16) *50;
 						//green = prof % 256;
 						//blue = prof % 256;
-            green = (prof % 256) * 16;
-            blue = (prof % 32) * 8;
-            fout << red << " " << green << " " << blue << " ";
+            green = (val_profundidade % 256) * 16;
+            blue = (val_profundidade % 32) * 8;
+            criando_imagem << red << " " << green << " " << blue << " "; // Escreve no arquivo
 	    }
-	    fout << endl;
+	    criando_imagem << endl;
 	}
-    fout.close();
+    criando_imagem.close();
 }
